@@ -15,5 +15,6 @@ ozengine main.ozf
 
 ## Sources
 
-https://www.info.ucl.ac.be/~pvr/MemoireFrancoisFonteyn.pdf
-http://mozart2.org/mozart-v1/doc-1.4.0/tutorial/node8.html#section.concurrency.stream
+- https://www.info.ucl.ac.be/~pvr/MemoireFrancoisFonteyn.pdf
+
+- http://mozart2.org/mozart-v1/doc-1.4.0/tutorial/node8.html#section.concurrency.stream
