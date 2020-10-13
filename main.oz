@@ -3,6 +3,7 @@ functor
 import
     Application(exit:Exit)
     System
+    Browser(browse:Browse)
     OS
 define
     {System.showInfo 'Task 1'}
@@ -10,7 +11,7 @@ define
         if Start > End then 
             nil
         else
-            if Start mod 2 == 1 then
+            if {Abs Start mod 2} == 1 then
                 local
                     NewValue = Start + 2
                 in
@@ -28,17 +29,19 @@ define
 
     % Prints: [~3 ~1 1 3 5 7]
     {System.showInfo 'Running {GenerateOdd ~3 10} ...'}
-    {System.show {GenerateOdd ~3 10}}
+    {Browse thread {GenerateOdd ~3 10} end} % browse stream
+    {System.show {GenerateOdd ~3 10}} % print list
     
     % Prints: [3]
     {System.showInfo '\nRunning {GenerateOdd 3 3} ...'}
-    {System.show {GenerateOdd 3 3}}
+    {Browse thread {GenerateOdd 3 3} end}
+    {System.show {GenerateOdd 3 3} }
 
     % Prints: nil
     {System.showInfo '\nRunning {GenerateOdd 2 2} ...'}
+    {Browse thread {GenerateOdd 2 2} end}
     {System.show {GenerateOdd 2 2}}
     % END OF TASK 1 ----------------------------------------------
-
 
     {System.showInfo '\n\nTask 2'}
     fun {Product L} 
@@ -48,8 +51,8 @@ define
             1
         end
     end
-    % Prints: 24
     {System.showInfo 'running {Product [1 2 3 4]} ...'}
+    % Prints: 24
     {System.show {Product [1 2 3 4]}}
     % END OF TASK 2 ----------------------------------------------
 
@@ -57,23 +60,23 @@ define
     {System.showInfo '\n\nTask 3'}
     {System.showInfo 'Running example, please read source code comments ...'}
     local 
-        X
         Y
 
-        fun {Consume L} 
-            case L of Head|Tail then
-                Head * 2 | Tail
-            else 
+        fun {Consume Ls}
+            case Ls of H|T then
+                H * 2 | {Consume T}
+            else
                 nil
             end
         end
     in
-        thread X = {GenerateOdd 0 1000} end
         thread 
-            Y = {Consume X}
-            {System.showInfo Y.1}
-            {System.showInfo Y.2.1}
-            {System.showInfo Y.2.2.1}
+            Y = {Consume thread {GenerateOdd 0 1000} end}
+            % If we want to declare a display at this point, we have to use browse
+            % for concurrency
+            {Browse Y.1}
+            {Browse Y.2.1}
+            {Browse Y.2.2.1}
 
             % Since we produce and consume in two different threads, OZ can use the fact that X is a stream
             % to read values from it before the whole dataset is computated. This means that one core on the CPU
@@ -85,7 +88,7 @@ define
             % Consume:             ------------- *~2000*
             % Time     ------------------------- *~2000*
             
-            % Oz can make it run like this:
+            % Oz can make it run something like this:
             % Produce: --- -- ------  *~1000*
             % Consume:   --- -------- *~1000*
             % Time     -------------- *~1000*
@@ -93,6 +96,11 @@ define
 
         % Suspend main thread until Y is assigned
         {Wait Y}
+
+        % At this point we can show Y as we have waited 
+        {System.show Y.1}
+        {System.show Y.2.1}
+        {System.show Y.2.2.1}
     end
     % END OF TASK 3 ----------------------------------------------
 
@@ -173,6 +181,7 @@ define
     in
         {OS.randLimits ?MinOS ?MaxOS} Min + X * (Max - Min) div (MaxOS - MinOS)
     end
+    % Task 5 a
     {System.showInfo '\na) Making 4 hammers. Please wait ...'}
 
     % Creates a hammer after ~1 second (In practice, a bit longer than 1 second)
@@ -190,12 +199,105 @@ define
     % Test {HammerFactory}
     local 
         HammerTime 
-        B 
     in
         HammerTime = {HammerFactory}
-        B = HammerTime.2.2.2.1 % force production of 4 hammers
+        _ = HammerTime.2.2.2.1 % force production of 4 hammers
         {System.show HammerTime}
     end
- 
+
+    {System.showInfo '\nb) Counting working hammers between 0 and 10. Please wait ...'}
+    % Task 5 b
+    fun {HammerConsumer HammerStream N}
+        N2 = N - 1
+    in
+        if N2 < 0 then
+            0
+        else 
+            case HammerStream.1 of defect then
+                {HammerConsumer HammerStream.2 N2}
+            [] working then
+                1 + {HammerConsumer HammerStream.2 N2}
+            else
+                0
+            end
+        end
+    end
+
+    local HammerTime Consumer in
+        HammerTime = {HammerFactory}
+        Consumer = {HammerConsumer HammerTime 10}
+        {System.show Consumer}
+    end
+
+    % Task 5 c
+    {System.showInfo '\nc) Bounding buffer. Please wait ...'}
+
+    fun {BoundedBuffer HammerStream N}
+        % Procedure that visits an element to bind it
+        proc {Bind S N} 
+            if N < 1 then
+                skip
+            else
+                {Bind S.2 N - 1}
+            end
+        end
+
+        Buffer
+    in  
+        % Create a bounded buffer in another thread
+        thread
+            Buffer = HammerStream
+            {Bind Buffer N}
+        end
+        % Return buffer
+        Buffer
+    end
+    
+    {System.showInfo '\nStarting no bound buffer test'}
+    local HammerStream StartTime Consumer in
+        {System.showInfo '\nProgram taking a 6 second coffee break :). Please wait ...'}
+        StartTime = {Time.time}
+
+        % Create stream
+        HammerStream = {HammerFactory}
+
+        % Suspend thread, we have no other threading going on so the process will sleep
+        % zzz
+        {Delay 6000}
+
+        % Here we find out we need 10 hammers, we have to create them all 
+        % at this point. Would be greate if we utilized the 6 seconds of suspension ...
+        {System.showInfo '\nConsuming 10 from buffer. Please wait ...'}
+        Consumer = {HammerConsumer HammerStream 10}
+
+        {System.showInfo "Used "#{Time.time} - StartTime#" seconds on test"}
+        {System.show Consumer}
+    end
+
+    {System.showInfo '\nStarting bound buffer test'}
+    local HammerStream Buffer StartTime Consumer in
+        {System.showInfo '\nPrecomputing 6 in buffer. Please wait ...'}
+        % Record time when we start test
+        StartTime = {Time.time} 
+
+        % Here we create stream and then a bounded buffer while we wait
+        % for delay. Even though the thread is halting (or doing something else),
+        % we have another thread that is bindnig the buffer over time as long as 
+        % the scheduler is good to us ... 
+        HammerStream = {HammerFactory}
+        Buffer = {BoundedBuffer HammerStream 6}
+        {Delay 6000}
+
+        % At this point we have haltet current thread in 6 seconds, hopefully
+        % the buffer has grown in the meantime. Then when we request the stream
+        % there should be 6 ready to go, meaning we have to wait for 4.
+        {System.showInfo '\nConsuming 10 from buffer. Please wait ...'}
+        Consumer = {HammerConsumer Buffer 10}
+
+        % Use current time - start time to figure out run time in seconds
+        % The sum should be about 10 as we use the 6 start seconds to bind the buffer
+        {System.showInfo "Used "#{Time.time} - StartTime#" seconds on test"}
+        {System.show Consumer}
+    end
     {Exit 0}
 end
